@@ -31,7 +31,7 @@ func Compress(inputFilePath, outputFilePath string) error {
 		return err
 	}
 
-	err = compress(outputFilePath, inputFilePath, filepath.Dir(inputFilePath))
+	err = compress(inputFilePath, outputFilePath, filepath.Dir(inputFilePath))
 	if err != nil {
 		if firstDirCreated != "" {
 			os.RemoveAll(firstDirCreated)
@@ -129,7 +129,7 @@ func exists(path string) (bool, error) {
 // The main interaction with tar and gzip. Creates a archive and recursivly adds all files in the directory.
 // The finished archive contains just the directory added, not any parents.
 // This is possible by giving the whole path exept the final directory in subPath.
-func compress(outFilePath string, inPath string, subPath string) error {
+func compress(inPath, outFilePath, subPath string) error {
 	file, err := os.Create(outFilePath)
 	if err != nil {
 		return err
