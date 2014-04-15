@@ -13,9 +13,9 @@ import (
 	"compress/gzip"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Compress creates a archive from the folder inputFilePath points to in the file outputFilePath points to.
@@ -23,28 +23,107 @@ import (
 // It tries to create the directory structure outputFilePath contains if it doesn't exist.
 // It returns potential errors to be checked or nil if everything works.
 func Compress(inputFilePath, outputFilePath string) error {
-	err := os.MkdirAll(filepath.Dir(outputFilePath), 0755)
+	firstDirCreated, err := mkdirAll(filepath.Dir(outputFilePath), 0755)
 	if err != nil {
+		if firstDirCreated != "" {
+			os.RemoveAll(firstDirCreated)
+		}
 		return err
 	}
 
 	err = compress(outputFilePath, inputFilePath, filepath.Dir(inputFilePath))
+	if err != nil {
+		if firstDirCreated != "" {
+			os.RemoveAll(firstDirCreated)
+		} else {
+			if exist, _ := exists(outputFilePath); exist {
+				os.Remove(outputFilePath)
+			}
+		}
+		return err
+	}
 
-	return err
+	return nil
 }
 
 // Extract extracts a archive from the file inputFilePath points to in the directory outputFilePath points to.
 // It tries to create the directory structure outputFilePath contains if it doesn't exist.
 // It returns potential errors to be checked or nil if everything works.
 func Extract(inputFilePath, outputFilePath string) error {
-	err := os.MkdirAll(outputFilePath, 0755)
+	firstDirCreated, err := mkdirAll(outputFilePath, 0755)
 	if err != nil {
+		if firstDirCreated != "" {
+			os.RemoveAll(firstDirCreated)
+		}
 		return err
 	}
 
 	err = extract(inputFilePath, outputFilePath)
+	if err != nil {
+		if firstDirCreated != "" {
+			os.RemoveAll(firstDirCreated)
+		}
+		return err
+	}
 
 	return err
+}
+
+// Creates all directories like os.MakedirAll but returns the path to the first created directory so cleanup is possible.
+// The directories under the returned path is created by the mkdirAll call so they should be safe to delete.
+func mkdirAll(directory string, perm os.FileMode) (string, error) {
+	firstDirCreated := ""
+	hierarchy := directoryHierarchy(directory)
+
+	for _, directory := range hierarchy {
+		exists, err := exists(directory)
+		if err != nil {
+			return firstDirCreated, err
+		}
+		if !exists {
+			err := os.Mkdir(directory, perm)
+			if err != nil {
+				return firstDirCreated, err
+			} else if firstDirCreated == "" {
+				firstDirCreated = directory
+			}
+		}
+	}
+
+	return firstDirCreated, nil
+}
+
+// Returns a list with all paths required for the next level.
+// eg. directoryHierarchy("a/b/c") => ["a", "a/b", "a/b/c"]
+func directoryHierarchy(directory string) []string {
+	hierarchy := make([]string, 0, 5)
+	directories := strings.Split(directory, string(os.PathSeparator))
+
+	for index, directory := range directories {
+		path := ""
+		for _, dir := range directories[:index] {
+			path += dir + string(os.PathSeparator)
+		}
+		path += directory
+
+		if path != "" {
+			hierarchy = append(hierarchy, path)
+		}
+	}
+
+	return hierarchy
+}
+
+// Check if path exists or not
+func exists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 // The main interaction with tar and gzip. Creates a archive and recursivly adds all files in the directory.
@@ -52,7 +131,7 @@ func Extract(inputFilePath, outputFilePath string) error {
 // This is possible by giving the whole path exept the final directory in subPath.
 func compress(outFilePath string, inPath string, subPath string) error {
 	file, err := os.Create(outFilePath)
-	if handle(err) != nil {
+	if err != nil {
 		return err
 	}
 	defer file.Close()
@@ -63,21 +142,76 @@ func compress(outFilePath string, inPath string, subPath string) error {
 	tarWriter := tar.NewWriter(gzipWriter)
 	defer tarWriter.Close()
 
-	writeDirectory(inPath, tarWriter, subPath)
+	err = writeDirectory(inPath, tarWriter, subPath)
+	if err != nil {
+		return err
+	}
 
 	return nil
+}
+
+// Read a directy and write it to the tar writer. Recursive function that writes all sub folders.
+func writeDirectory(directory string, tarWriter *tar.Writer, subPath string) error {
+	files, err := ioutil.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		currentPath := filepath.Join(directory, file.Name())
+		if file.IsDir() {
+			err := writeDirectory(currentPath, tarWriter, subPath)
+			if err != nil {
+				return err
+			}
+		} else {
+			err = writeTarGz(currentPath, tarWriter, file, subPath)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// Write path without the prefix in subPath to tar writer.
+func writeTarGz(path string, tarWriter *tar.Writer, fileInfo os.FileInfo, subPath string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	header := new(tar.Header)
+	header.Name = path[len(subPath):]
+	header.Size = fileInfo.Size()
+	header.Mode = int64(fileInfo.Mode())
+	header.ModTime = fileInfo.ModTime()
+
+	err = tarWriter.WriteHeader(header)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(tarWriter, file)
+	if err != nil {
+		return err
+	}
+
+	return err
 }
 
 // Extract the file in filePath to directory.
 func extract(filePath string, directory string) error {
 	file, err := os.Open(filePath)
-	if handle(err) != nil {
+	if err != nil {
 		return err
 	}
 	defer file.Close()
 
 	gzipReader, err := gzip.NewReader(bufio.NewReader(file))
-	if handle(err) != nil {
+	if err != nil {
 		return err
 	}
 	defer gzipReader.Close()
@@ -89,7 +223,7 @@ func extract(filePath string, directory string) error {
 		if err == io.EOF {
 			break
 		}
-		if handle(err) != nil {
+		if err != nil {
 			return err
 		}
 
@@ -98,12 +232,12 @@ func extract(filePath string, directory string) error {
 		filename := filepath.Join(dir, fileInfo.Name())
 
 		err = os.MkdirAll(dir, 0755)
-		if handle(err) != nil {
+		if err != nil {
 			return err
 		}
 
 		file, err := os.Create(filename)
-		if handle(err) != nil {
+		if err != nil {
 			return err
 		}
 		defer func() {
@@ -125,77 +259,16 @@ func extract(filePath string, directory string) error {
 			}
 
 			_, err = writer.Write(buffer[:n])
-			if handle(err) != nil {
+			if err != nil {
 				return err
 			}
 		}
 
 		err = writer.Flush()
-		if handle(err) != nil {
+		if err != nil {
 			return err
 		}
 	}
 
 	return nil
-}
-
-// Write path without the prefix in subPath to tar writer.
-func writeTarGz(path string, tarWriter *tar.Writer, fileInfo os.FileInfo, subPath string) error {
-	file, err := os.Open(path)
-	if handle(err) != nil {
-		return err
-	}
-	defer file.Close()
-
-	header := new(tar.Header)
-	header.Name = path[len(subPath):]
-	header.Size = fileInfo.Size()
-	header.Mode = int64(fileInfo.Mode())
-	header.ModTime = fileInfo.ModTime()
-
-	err = tarWriter.WriteHeader(header)
-	if handle(err) != nil {
-		return err
-	}
-
-	_, err = io.Copy(tarWriter, file)
-	if handle(err) != nil {
-		return err
-	}
-
-	return err
-}
-
-// Read a directy and write it to the tar writer. Recursive function that writes all sub folders.
-func writeDirectory(directory string, tarWriter *tar.Writer, subPath string) error {
-	files, err := ioutil.ReadDir(directory)
-	if handle(err) != nil {
-		return err
-	}
-
-	for _, file := range files {
-		currentPath := filepath.Join(directory, file.Name())
-		if file.IsDir() {
-			err := writeDirectory(currentPath, tarWriter, subPath)
-			if handle(err) != nil {
-				return err
-			}
-		} else {
-			err = writeTarGz(currentPath, tarWriter, file, subPath)
-			if handle(err) != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// Log the error and return it.
-func handle(err error) error {
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return err
 }
