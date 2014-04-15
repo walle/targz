@@ -248,7 +248,7 @@ func extract(filePath string, directory string) error {
 
 		writer := bufio.NewWriter(file)
 
-		buffer := make([]byte, 1024)
+		buffer := make([]byte, 4096)
 		for {
 			n, err := tarReader.Read(buffer)
 			if err != nil && err != io.EOF {
