@@ -16,31 +16,25 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // Compress creates a archive from the folder inputFilePath points to in the file outputFilePath points to.
 // Only adds the last directory in inputFilePath to the archive, not the whole path.
 // It tries to create the directory structure outputFilePath contains if it doesn't exist.
 // It returns potential errors to be checked or nil if everything works.
-func Compress(inputFilePath, outputFilePath string) error {
-	firstDirCreated, err := mkdirAll(filepath.Dir(outputFilePath), 0755)
+func Compress(inputFilePath, outputFilePath string) (err error) {
+	undoDir, err := mkdirAll(filepath.Dir(outputFilePath), 0755)
 	if err != nil {
-		if firstDirCreated != "" {
-			os.RemoveAll(firstDirCreated)
-		}
 		return err
 	}
+	defer func() {
+		if err != nil {
+			undoDir()
+		}
+	}()
 
 	err = compress(inputFilePath, outputFilePath, filepath.Dir(inputFilePath))
 	if err != nil {
-		if firstDirCreated != "" {
-			os.RemoveAll(firstDirCreated)
-		} else {
-			if exist, _ := exists(outputFilePath); exist {
-				os.Remove(outputFilePath)
-			}
-		}
 		return err
 	}
 
@@ -50,87 +44,52 @@ func Compress(inputFilePath, outputFilePath string) error {
 // Extract extracts a archive from the file inputFilePath points to in the directory outputFilePath points to.
 // It tries to create the directory structure outputFilePath contains if it doesn't exist.
 // It returns potential errors to be checked or nil if everything works.
-func Extract(inputFilePath, outputFilePath string) error {
-	firstDirCreated, err := mkdirAll(outputFilePath, 0755)
+func Extract(inputFilePath, outputFilePath string) (err error) {
+	undoDir, err := mkdirAll(outputFilePath, 0755)
 	if err != nil {
-		if firstDirCreated != "" {
-			os.RemoveAll(firstDirCreated)
-		}
 		return err
 	}
-
-	err = extract(inputFilePath, outputFilePath)
-	if err != nil {
-		if firstDirCreated != "" {
-			os.RemoveAll(firstDirCreated)
-		}
-		return err
-	}
-
-	return err
-}
-
-// Creates all directories like os.MakedirAll but returns the path to the first created directory so cleanup is possible.
-// The directories under the returned path is created by the mkdirAll call so they should be safe to delete.
-func mkdirAll(directory string, perm os.FileMode) (string, error) {
-	firstDirCreated := ""
-	hierarchy := directoryHierarchy(directory)
-
-	for _, directory := range hierarchy {
-		exists, err := exists(directory)
+	defer func() {
 		if err != nil {
-			return firstDirCreated, err
+			undoDir()
 		}
-		if !exists {
-			err := os.Mkdir(directory, perm)
-			if err != nil {
-				return firstDirCreated, err
-			} else if firstDirCreated == "" {
-				firstDirCreated = directory
+	}()
+
+	return extract(inputFilePath, outputFilePath)
+}
+
+// Creates all directories with os.MakedirAll and returns a function to remove the first created directory so cleanup is possible.
+func mkdirAll(dirPath string, perm os.FileMode) (func(), error) {
+	var undoDir string
+	dirs := filepath.SplitList(dirPath)
+
+	for i := range dirs {
+		dirPath := filepath.Join(dirs[0 : i+1]...)
+		_, err := os.Stat(dirPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				undoDir = dirPath
+				break
 			}
+			return nil, err
 		}
 	}
 
-	return firstDirCreated, nil
-}
-
-// Returns a list with all paths required for the next level.
-// eg. directoryHierarchy("a/b/c") => ["a", "a/b", "a/b/c"]
-func directoryHierarchy(directory string) []string {
-	hierarchy := make([]string, 0, 5)
-	directories := strings.Split(directory, string(os.PathSeparator))
-
-	for index, directory := range directories {
-		path := ""
-		for _, dir := range directories[:index] {
-			path += dir + string(os.PathSeparator)
-		}
-		path += directory
-
-		if path != "" {
-			hierarchy = append(hierarchy, path)
-		}
+	if err := os.MkdirAll(dirPath, perm); err != nil {
+		return nil, err
 	}
 
-	return hierarchy
-}
+	if undoDir == "" {
+		return func() {}, nil
+	}
 
-// Check if path exists or not
-func exists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, err
+	return func() { os.RemoveAll(undoDir) }, nil
 }
 
 // The main interaction with tar and gzip. Creates a archive and recursivly adds all files in the directory.
 // The finished archive contains just the directory added, not any parents.
 // This is possible by giving the whole path exept the final directory in subPath.
-func compress(inPath, outFilePath, subPath string) error {
+func compress(inPath, outFilePath, subPath string) (err error) {
 	files, err := ioutil.ReadDir(inPath)
 	if err != nil {
 		return err
@@ -144,6 +103,11 @@ func compress(inPath, outFilePath, subPath string) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			os.Remove(outFilePath)
+		}
+	}()
 
 	gzipWriter := gzip.NewWriter(file)
 	tarWriter := tar.NewWriter(gzipWriter)
