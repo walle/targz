@@ -11,6 +11,7 @@ import (
 	"archive/tar"
 	"bufio"
 	"compress/gzip"
+	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -130,6 +131,15 @@ func exists(path string) (bool, error) {
 // The finished archive contains just the directory added, not any parents.
 // This is possible by giving the whole path exept the final directory in subPath.
 func compress(inPath, outFilePath, subPath string) error {
+	files, err := ioutil.ReadDir(inPath)
+	if err != nil {
+		return err
+	}
+
+	if len(files) == 0 {
+		return errors.New("targz: input directory is empty")
+	}
+
 	file, err := os.Create(outFilePath)
 	if err != nil {
 		return err
