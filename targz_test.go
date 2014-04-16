@@ -9,6 +9,19 @@ import (
 	"testing"
 )
 
+// Check if path exists or not
+func exists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	switch {
+	case err == nil:
+		return true, nil
+	case os.IsNotExist(err):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
 func Test_CompressAndExtract(t *testing.T) {
 	tmpDir, dirToCompress := createTestData()
 	defer os.RemoveAll(tmpDir)
@@ -17,7 +30,7 @@ func Test_CompressAndExtract(t *testing.T) {
 
 	err := Compress(dirToCompress, filepath.Join(tmpDir, "my_archive.tar.gz"))
 	if err != nil {
-		t.Errorf("Comress error: %s", err)
+		t.Errorf("Compress error: %s", err)
 	}
 
 	err = Extract(filepath.Join(tmpDir, "my_archive.tar.gz"), filepath.Join(tmpDir, "extracted"))
@@ -38,7 +51,7 @@ func Test_GivesErrorIfOutputIsFile(t *testing.T) {
 
 	err := Compress(dirToCompress, filepath.Join(tmpDir, "my_archive.tar.gz"))
 	if err != nil {
-		t.Errorf("Comress error: %s", err)
+		t.Errorf("Compress error: %s", err)
 	}
 
 	err = Extract(filepath.Join(tmpDir, "my_archive.tar.gz"), filepath.Join(tmpDir, "my_archive.tar.gz"))
@@ -81,7 +94,7 @@ func Test_CompressAndExtractWithMultipleFiles(t *testing.T) {
 
 	err := Compress(dirToCompress, filepath.Join(tmpDir, "my_archive.tar.gz"))
 	if err != nil {
-		t.Errorf("Comress error: %s", err)
+		t.Errorf("Compress error: %s", err)
 	}
 
 	err = Extract(filepath.Join(tmpDir, "my_archive.tar.gz"), filepath.Join(tmpDir, "extracted"))
@@ -144,7 +157,7 @@ func Test_CompabilityWithTar(t *testing.T) {
 
 		err := Compress(dirToCompress, filepath.Join(tmpDir, "my_archive.tar.gz"))
 		if err != nil {
-			t.Errorf("Comress error: %s", err)
+			t.Errorf("Compress error: %s", err)
 		}
 
 		os.MkdirAll(filepath.Join(tmpDir, "extracted"), 0755)
