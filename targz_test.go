@@ -116,6 +116,24 @@ func Test_ThatOutputDirIsRemovedIfCompressFails(t *testing.T) {
 	}
 }
 
+func Test_ThatOutputDirIsRemovedIfExtractFails(t *testing.T) {
+	tmpDir, _ := createTestData()
+	defer os.RemoveAll(tmpDir)
+
+	err := Extract(filepath.Join(tmpDir, "my_archive.tar.gz"), filepath.Join(tmpDir, "extracted"))
+	if err == nil {
+		t.Errorf("Should say that %s doesn't exist", filepath.Join(tmpDir, "my_archive.tar.gz"))
+	}
+
+	exist, err := exists(filepath.Join(tmpDir, "extracted"))
+	if err != nil {
+		panic(err)
+	}
+	if exist {
+		t.Errorf("%s should be removed", filepath.Join(tmpDir, "extracted"))
+	}
+}
+
 func Test_CompabilityWithTar(t *testing.T) {
 	_, err := exec.LookPath("tar")
 	if err == nil {
