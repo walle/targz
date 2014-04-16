@@ -134,15 +134,26 @@ func compress(inPath, outFilePath, subPath string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
 	gzipWriter := gzip.NewWriter(file)
-	defer gzipWriter.Close()
-
 	tarWriter := tar.NewWriter(gzipWriter)
-	defer tarWriter.Close()
 
 	err = writeDirectory(inPath, tarWriter, subPath)
+	if err != nil {
+		return err
+	}
+
+	err = tarWriter.Close()
+	if err != nil {
+		return err
+	}
+
+	err = gzipWriter.Close()
+	if err != nil {
+		return err
+	}
+
+	err = file.Close()
 	if err != nil {
 		return err
 	}
