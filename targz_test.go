@@ -96,6 +96,26 @@ func Test_CompressAndExtractWithMultipleFiles(t *testing.T) {
 	}
 }
 
+func Test_ThatOutputDirIsRemovedIfCompressFails(t *testing.T) {
+	tmpDir, dirToCompress := createTestData()
+	defer os.RemoveAll(tmpDir)
+
+	os.RemoveAll(filepath.Join(dirToCompress, "my_sub_folder"))
+
+	err := Compress(dirToCompress, filepath.Join(tmpDir, "dir_to_be_removed", "my_archive.tar.gz"))
+	if err == nil {
+		t.Errorf("Should say that %s is empty", dirToCompress)
+	}
+
+	exist, err := exists(filepath.Join(tmpDir, "dir_to_be_removed"))
+	if err != nil {
+		panic(err)
+	}
+	if exist {
+		t.Errorf("%s should be removed", filepath.Join(tmpDir, "dir_to_be_removed"))
+	}
+}
+
 func Test_CompabilityWithTar(t *testing.T) {
 	_, err := exec.LookPath("tar")
 	if err == nil {
