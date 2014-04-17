@@ -15,7 +15,9 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
+	"syscall"
 )
 
 // Compress creates a archive from the folder inputFilePath points to in the file outputFilePath points to.
@@ -61,26 +63,40 @@ func Extract(inputFilePath, outputFilePath string) (err error) {
 // Creates all directories with os.MakedirAll and returns a function to remove the first created directory so cleanup is possible.
 func mkdirAll(dirPath string, perm os.FileMode) (func(), error) {
 	var undoDir string
-	dirs := filepath.SplitList(dirPath)
 
-	for i := range dirs {
-		dirPath := filepath.Join(dirs[0 : i+1]...)
-		_, err := os.Stat(dirPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				undoDir = dirPath
+	for p := dirPath; ; p = path.Dir(p) {
+		finfo, err := os.Stat(p)
+
+		if err == nil {
+			if finfo.IsDir() {
 				break
 			}
+
+			finfo, err = os.Lstat(p)
+			if err != nil {
+				return nil, err
+			}
+
+			if finfo.IsDir() {
+				break
+			}
+
+			return nil, &os.PathError{"mkdirAll", p, syscall.ENOTDIR}
+		}
+
+		if os.IsNotExist(err) {
+			undoDir = p
+		} else {
 			return nil, err
 		}
 	}
 
-	if err := os.MkdirAll(dirPath, perm); err != nil {
-		return nil, err
-	}
-
 	if undoDir == "" {
 		return func() {}, nil
+	}
+
+	if err := os.MkdirAll(dirPath, perm); err != nil {
+		return nil, err
 	}
 
 	return func() { os.RemoveAll(undoDir) }, nil
