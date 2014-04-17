@@ -45,6 +45,29 @@ func Test_CompressAndExtract(t *testing.T) {
 	}
 }
 
+func Test_CompressAndExtractWithTrailingSlash(t *testing.T) {
+	tmpDir, dirToCompress := createTestData()
+	defer os.RemoveAll(tmpDir)
+
+	structureBefore := directoryStructureString(dirToCompress)
+
+	err := Compress(dirToCompress+"/", filepath.Join(tmpDir, "my_archive.tar.gz"))
+	if err != nil {
+		t.Errorf("Compress error: %s", err)
+	}
+
+	err = Extract(filepath.Join(tmpDir, "my_archive.tar.gz"), filepath.Join(tmpDir, "extracted/"))
+	if err != nil {
+		t.Errorf("Extract error: %s", err)
+	}
+
+	structureAfter := directoryStructureString(filepath.Join(tmpDir, "extracted", "my_folder"))
+
+	if structureAfter != structureBefore {
+		t.Errorf("Directory structure before compress and after extract does not match. Before {%s}, After {%s}", structureBefore, structureAfter)
+	}
+}
+
 func Test_GivesErrorIfOutputIsFile(t *testing.T) {
 	tmpDir, dirToCompress := createTestData()
 	defer os.RemoveAll(tmpDir)

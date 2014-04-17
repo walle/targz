@@ -25,6 +25,7 @@ import (
 // It tries to create the directory structure outputFilePath contains if it doesn't exist.
 // It returns potential errors to be checked or nil if everything works.
 func Compress(inputFilePath, outputFilePath string) (err error) {
+	inputFilePath = stripTrailingSlashes(inputFilePath)
 	undoDir, err := mkdirAll(filepath.Dir(outputFilePath), 0755)
 	if err != nil {
 		return err
@@ -47,6 +48,7 @@ func Compress(inputFilePath, outputFilePath string) (err error) {
 // It tries to create the directory structure outputFilePath contains if it doesn't exist.
 // It returns potential errors to be checked or nil if everything works.
 func Extract(inputFilePath, outputFilePath string) (err error) {
+	outputFilePath = stripTrailingSlashes(outputFilePath)
 	undoDir, err := mkdirAll(outputFilePath, 0755)
 	if err != nil {
 		return err
@@ -100,6 +102,15 @@ func mkdirAll(dirPath string, perm os.FileMode) (func(), error) {
 	}
 
 	return func() { os.RemoveAll(undoDir) }, nil
+}
+
+// Remove trailing slash if any.
+func stripTrailingSlashes(path string) string {
+	for len(path) > 0 && path[len(path)-1] == '/' {
+		path = path[0 : len(path)-1]
+	}
+
+	return path
 }
 
 // The main interaction with tar and gzip. Creates a archive and recursivly adds all files in the directory.
