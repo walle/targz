@@ -213,30 +213,19 @@ func writeTarGz(path string, tarWriter *tar.Writer, fileInfo os.FileInfo, subPat
 	}
 	defer file.Close()
 
-	evaledPath, err := filepath.EvalSymlinks(path)
+	header, err := tar.FileInfoHeader(fileInfo, path)
 	if err != nil {
 		return err
 	}
-
-	subPath, err = filepath.EvalSymlinks(subPath)
-	if err != nil {
-		return err
-	}
-
-	link := ""
-	if evaledPath != path {
-		link = evaledPath
-	}
-
-	header, err := tar.FileInfoHeader(fileInfo, link)
-	if err != nil {
-		return err
-	}
-	header.Name = evaledPath[len(subPath):]
+	header.Name = path[len(subPath):]
 
 	err = tarWriter.WriteHeader(header)
 	if err != nil {
 		return err
+	}
+
+	if !fileInfo.Mode().IsRegular() {
+		return nil
 	}
 
 	_, err = io.Copy(tarWriter, file)
