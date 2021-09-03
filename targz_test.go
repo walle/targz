@@ -222,9 +222,13 @@ func createTestData() (string, string) {
 		panic(err)
 	}
 
-	_, err = os.Create(filepath.Join(subDirectory, "my_file.txt"))
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(subDirectory, "my_file.txt"), []byte("file contents"), 0666); err != nil {
 		fmt.Println("Create file error")
+		panic(err)
+	}
+
+	if err := os.Symlink(filepath.Join(subDirectory, "my_file.txt"), filepath.Join(subDirectory, "my_file.link")); err != nil {
+		fmt.Println("Create symlink error")
 		panic(err)
 	}
 
