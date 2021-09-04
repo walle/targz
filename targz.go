@@ -207,14 +207,9 @@ func writeDirectory(directory string, tarWriter *tar.Writer, subPath string) err
 
 // Write path without the prefix in subPath to tar writer.
 func writeTarGz(path string, tarWriter *tar.Writer, fileInfo os.FileInfo, subPath string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
 	var link string
 	if fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink {
+		var err error
 		if link, err = os.Readlink(path); err != nil {
 			return err
 		}
@@ -234,6 +229,12 @@ func writeTarGz(path string, tarWriter *tar.Writer, fileInfo os.FileInfo, subPat
 	if !fileInfo.Mode().IsRegular() {
 		return nil
 	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
 
 	_, err = io.Copy(tarWriter, file)
 	if err != nil {
