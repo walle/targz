@@ -54,9 +54,14 @@ func createExampleData() (string, string) {
 		os.Exit(1)
 	}
 
-	_, err = os.Create(filepath.Join(subDirectory, "my_file.txt"))
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(subDirectory, "my_file.txt"), []byte("example data\n"), 0666); err != nil {
 		fmt.Println("create file error")
+		panic(err)
+		os.Exit(1)
+	}
+
+	if err := os.Symlink(filepath.Join(subDirectory, "my_file.txt"), filepath.Join(subDirectory, "my_link")); err != nil {
+		fmt.Println("create symlink error")
 		panic(err)
 		os.Exit(1)
 	}
