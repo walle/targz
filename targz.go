@@ -131,9 +131,9 @@ func makeAbsolute(inputFilePath, outputFilePath string) (string, string, error) 
 	return inputFilePath, outputFilePath, err
 }
 
-// The main interaction with tar and gzip. Creates a archive and recursivly adds all files in the directory.
+// The main interaction with tar and gzip. Creates a archive and recursively adds all files in the directory.
 // The finished archive contains just the directory added, not any parents.
-// This is possible by giving the whole path exept the final directory in subPath.
+// This is possible by giving the whole path except the final directory in subPath.
 func compress(inPath, outFilePath, subPath string) (err error) {
 	files, err := ioutil.ReadDir(inPath)
 	if err != nil {
@@ -180,7 +180,7 @@ func compress(inPath, outFilePath, subPath string) (err error) {
 	return nil
 }
 
-// Read a directy and write it to the tar writer. Recursive function that writes all sub folders.
+// Read a directory and write it to the tar writer. Recursive function that writes all sub folders.
 func writeDirectory(directory string, tarWriter *tar.Writer, subPath string) error {
 	files, err := ioutil.ReadDir(directory)
 	if err != nil {
@@ -207,37 +207,34 @@ func writeDirectory(directory string, tarWriter *tar.Writer, subPath string) err
 
 // Write path without the prefix in subPath to tar writer.
 func writeTarGz(path string, tarWriter *tar.Writer, fileInfo os.FileInfo, subPath string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	evaledPath, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return err
-	}
-
-	subPath, err = filepath.EvalSymlinks(subPath)
-	if err != nil {
-		return err
-	}
-
-	link := ""
-	if evaledPath != path {
-		link = evaledPath
+	var link string
+	if fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink {
+		var err error
+		if link, err = os.Readlink(path); err != nil {
+			return err
+		}
 	}
 
 	header, err := tar.FileInfoHeader(fileInfo, link)
 	if err != nil {
 		return err
 	}
-	header.Name = evaledPath[len(subPath):]
+	header.Name = path[len(subPath):]
 
 	err = tarWriter.WriteHeader(header)
 	if err != nil {
 		return err
 	}
+
+	if !fileInfo.Mode().IsRegular() {
+		return nil
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
 
 	_, err = io.Copy(tarWriter, file)
 	if err != nil {
