@@ -9,10 +9,10 @@ import (
 )
 
 func Example() {
-	// Create a temporary file structiure we can use
+	// Create a temporary file structure we can use
 	tmpDir, dirToCompress := createExampleData()
 
-	// Comress a folder to my_archive.tar.gz
+	// Compress a folder to my_archive.tar.gz
 	err := targz.Compress(dirToCompress, filepath.Join(tmpDir, "my_archive.tar.gz"))
 	if err != nil {
 		panic(err)

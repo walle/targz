@@ -11,14 +11,14 @@ import (
 )
 
 func main() {
-	// Create a temporary file structiure we can use
+	// Create a temporary file structure we can use
 	tmpDir, dirToCompress := createExampleData()
 
-	// Comress a folder to my_archive.tar.gz
+	// Compress a folder to my_archive.tar.gz
 	err := targz.Compress(dirToCompress, filepath.Join(tmpDir, "my_archive.tar.gz"))
 	if err != nil {
-		fmt.Println("Comress error")
-		panic(err)
+		fmt.Println("Compress error")
+		fmt.Printf("%s\n", err.Error())
 		os.Exit(1)
 	}
 
@@ -26,7 +26,7 @@ func main() {
 	err = targz.Extract(filepath.Join(tmpDir, "my_archive.tar.gz"), filepath.Join(tmpDir, "extracted"))
 	if err != nil {
 		fmt.Println("Extract error")
-		panic(err)
+		fmt.Printf("%s\n", err.Error())
 		os.Exit(1)
 	}
 
@@ -41,7 +41,7 @@ func createExampleData() (string, string) {
 	tmpDir, err := ioutil.TempDir("", "targz-example")
 	if err != nil {
 		fmt.Println("tmpdir error")
-		panic(err)
+		fmt.Printf("%s\n", err.Error())
 		os.Exit(1)
 	}
 
@@ -50,14 +50,14 @@ func createExampleData() (string, string) {
 	err = os.MkdirAll(subDirectory, 0755)
 	if err != nil {
 		fmt.Println("mkdir error")
-		panic(err)
+		fmt.Printf("%s\n", err.Error())
 		os.Exit(1)
 	}
 
 	_, err = os.Create(filepath.Join(subDirectory, "my_file.txt"))
 	if err != nil {
 		fmt.Println("create file error")
-		panic(err)
+		fmt.Printf("%s\n", err.Error())
 		os.Exit(1)
 	}
 

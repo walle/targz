@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -42,7 +43,20 @@ func Compress(inputFilePath, outputFilePath string) (err error) {
 		}
 	}()
 
-	err = compress(inputFilePath, outputFilePath, filepath.Dir(inputFilePath))
+	// Return error if wildcard is used elsewhere than in the last path element
+	if dir, _ := filepath.Split(inputFilePath); strings.Contains(dir, "*") {
+		return errors.New("the wildcard \"*\" can be used only in the last path element")
+	}
+
+	var subPath string
+	if strings.Contains(inputFilePath, "*") {
+		inputFilePath = inputFilePath[:len(inputFilePath)-1]
+		subPath = inputFilePath
+	} else {
+		subPath = filepath.Dir(inputFilePath)
+	}
+
+	err = compress(inputFilePath, outputFilePath, subPath)
 	if err != nil {
 		return err
 	}
@@ -75,6 +89,7 @@ func Extract(inputFilePath, outputFilePath string) (err error) {
 // Creates all directories with os.MkdirAll and returns a function to remove the first created directory so cleanup is possible.
 func mkdirAll(dirPath string, perm os.FileMode) (func() error, error) {
 	var undoDir string
+	defaultReturnFunc := func() error { return nil }
 
 	for p := dirPath; ; p = path.Dir(p) {
 		finfo, err := os.Stat(p)
@@ -86,29 +101,29 @@ func mkdirAll(dirPath string, perm os.FileMode) (func() error, error) {
 
 			finfo, err = os.Lstat(p)
 			if err != nil {
-				return nil, err
+				return defaultReturnFunc, err
 			}
 
 			if finfo.IsDir() {
 				break
 			}
 
-			return nil, &os.PathError{Op: "mkdirAll", Path: p, Err: syscall.ENOTDIR}
+			return defaultReturnFunc, &os.PathError{Op: "mkdirAll", Path: p, Err: syscall.ENOTDIR}
 		}
 
 		if os.IsNotExist(err) {
 			undoDir = p
 		} else {
-			return nil, err
+			return defaultReturnFunc, err
 		}
 	}
 
 	if undoDir == "" {
-		return nil, nil
+		return defaultReturnFunc, nil
 	}
 
 	if err := os.MkdirAll(dirPath, perm); err != nil {
-		return nil, err
+		return defaultReturnFunc, err
 	}
 
 	return func() error {
@@ -186,6 +201,22 @@ func compress(inPath, outFilePath, subPath string) (err error) {
 
 // Read a directory and write it to the tar writer. Recursive function that writes all sub folders.
 func writeDirectory(directory string, tarWriter *tar.Writer, subPath string) error {
+	// Handle wildcards
+	if strings.Contains(directory, "*") {
+		matches, err := filepath.Glob(directory)
+		if err != nil {
+			return err
+		}
+
+		for _, match := range matches {
+			if err := writeDirectory(match, tarWriter, subPath); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
 	files, err := os.ReadDir(directory)
 	if err != nil {
 		return err
