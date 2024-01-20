@@ -1,3 +1,3 @@
-module github.com/walle/targz
+module github.com/BaderBC/targz
 
 go 1.21.6
