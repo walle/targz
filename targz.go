@@ -1,8 +1,10 @@
 // Package targz contains methods to create and extract tar gz archives.
 //
 // Usage (discarding potential errors):
-//   	targz.Compress("path/to/the/directory/to/compress", "my_archive.tar.gz")
-//   	targz.Extract("my_archive.tar.gz", "directory/to/extract/to")
+//
+//	targz.Compress("path/to/the/directory/to/compress", "my_archive.tar.gz")
+//	targz.Extract("my_archive.tar.gz", "directory/to/extract/to")
+//
 // This creates an archive in ./my_archive.tar.gz with the folder "compress" (last in the path).
 // And extracts the folder "compress" to "directory/to/extract/to/". The folder structure is created if it doesn't exist.
 package targz
@@ -12,15 +14,16 @@ import (
 	"bufio"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
-// Compress creates a archive from the folder inputFilePath points to in the file outputFilePath points to.
+// Compress creates an archive from the folder inputFilePath points to in the file outputFilePath points to.
 // Only adds the last directory in inputFilePath to the archive, not the whole path.
 // It tries to create the directory structure outputFilePath contains if it doesn't exist.
 // It returns potential errors to be checked or nil if everything works.
@@ -36,11 +39,24 @@ func Compress(inputFilePath, outputFilePath string) (err error) {
 	}
 	defer func() {
 		if err != nil {
-			undoDir()
+			handleErrorInDefer(undoDir())
 		}
 	}()
 
-	err = compress(inputFilePath, outputFilePath, filepath.Dir(inputFilePath))
+	// Return error if wildcard is used elsewhere than in the last path element
+	if dir, _ := filepath.Split(inputFilePath); strings.Contains(dir, "*") {
+		return errors.New("the wildcard \"*\" can be used only in the last path element")
+	}
+
+	var subPath string
+	if strings.Contains(inputFilePath, "*") {
+		inputFilePath = inputFilePath[:len(inputFilePath)-1]
+		subPath = inputFilePath
+	} else {
+		subPath = filepath.Dir(inputFilePath)
+	}
+
+	err = compress(inputFilePath, outputFilePath, subPath)
 	if err != nil {
 		return err
 	}
@@ -48,7 +64,7 @@ func Compress(inputFilePath, outputFilePath string) (err error) {
 	return nil
 }
 
-// Extract extracts a archive from the file inputFilePath points to in the directory outputFilePath points to.
+// Extract extracts an archive from the file inputFilePath points to in the directory outputFilePath points to.
 // It tries to create the directory structure outputFilePath contains if it doesn't exist.
 // It returns potential errors to be checked or nil if everything works.
 func Extract(inputFilePath, outputFilePath string) (err error) {
@@ -63,16 +79,17 @@ func Extract(inputFilePath, outputFilePath string) (err error) {
 	}
 	defer func() {
 		if err != nil {
-			undoDir()
+			handleErrorInDefer(undoDir())
 		}
 	}()
 
 	return extract(inputFilePath, outputFilePath)
 }
 
-// Creates all directories with os.MakedirAll and returns a function to remove the first created directory so cleanup is possible.
-func mkdirAll(dirPath string, perm os.FileMode) (func(), error) {
+// Creates all directories with os.MkdirAll and returns a function to remove the first created directory so cleanup is possible.
+func mkdirAll(dirPath string, perm os.FileMode) (func() error, error) {
 	var undoDir string
+	defaultReturnFunc := func() error { return nil }
 
 	for p := dirPath; ; p = path.Dir(p) {
 		finfo, err := os.Stat(p)
@@ -84,32 +101,34 @@ func mkdirAll(dirPath string, perm os.FileMode) (func(), error) {
 
 			finfo, err = os.Lstat(p)
 			if err != nil {
-				return nil, err
+				return defaultReturnFunc, err
 			}
 
 			if finfo.IsDir() {
 				break
 			}
 
-			return nil, &os.PathError{"mkdirAll", p, syscall.ENOTDIR}
+			return defaultReturnFunc, &os.PathError{Op: "mkdirAll", Path: p, Err: syscall.ENOTDIR}
 		}
 
 		if os.IsNotExist(err) {
 			undoDir = p
 		} else {
-			return nil, err
+			return defaultReturnFunc, err
 		}
 	}
 
 	if undoDir == "" {
-		return func() {}, nil
+		return defaultReturnFunc, nil
 	}
 
 	if err := os.MkdirAll(dirPath, perm); err != nil {
-		return nil, err
+		return defaultReturnFunc, err
 	}
 
-	return func() { os.RemoveAll(undoDir) }, nil
+	return func() error {
+		return os.RemoveAll(undoDir)
+	}, nil
 }
 
 // Remove trailing slash if any.
@@ -131,11 +150,11 @@ func makeAbsolute(inputFilePath, outputFilePath string) (string, string, error) 
 	return inputFilePath, outputFilePath, err
 }
 
-// The main interaction with tar and gzip. Creates a archive and recursivly adds all files in the directory.
+// The main interaction with tar and gzip. Creates an archive and recursively adds all files in the directory.
 // The finished archive contains just the directory added, not any parents.
-// This is possible by giving the whole path exept the final directory in subPath.
+// This is possible by giving the whole path except the final directory in subPath.
 func compress(inPath, outFilePath, subPath string) (err error) {
-	files, err := ioutil.ReadDir(inPath)
+	files, err := os.ReadDir(inPath)
 	if err != nil {
 		return err
 	}
@@ -150,7 +169,7 @@ func compress(inPath, outFilePath, subPath string) (err error) {
 	}
 	defer func() {
 		if err != nil {
-			os.Remove(outFilePath)
+			handleErrorInDefer(os.Remove(outFilePath))
 		}
 	}()
 
@@ -180,22 +199,43 @@ func compress(inPath, outFilePath, subPath string) (err error) {
 	return nil
 }
 
-// Read a directy and write it to the tar writer. Recursive function that writes all sub folders.
+// Read a directory and write it to the tar writer. Recursive function that writes all sub folders.
 func writeDirectory(directory string, tarWriter *tar.Writer, subPath string) error {
-	files, err := ioutil.ReadDir(directory)
+	// Handle wildcards
+	if strings.Contains(directory, "*") {
+		matches, err := filepath.Glob(directory)
+		if err != nil {
+			return err
+		}
+
+		for _, match := range matches {
+			if err := writeDirectory(match, tarWriter, subPath); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	files, err := os.ReadDir(directory)
 	if err != nil {
 		return err
 	}
 
-	for _, file := range files {
-		currentPath := filepath.Join(directory, file.Name())
-		if file.IsDir() {
+	for _, dirEntry := range files {
+		currentPath := filepath.Join(directory, dirEntry.Name())
+		if dirEntry.IsDir() {
 			err := writeDirectory(currentPath, tarWriter, subPath)
 			if err != nil {
 				return err
 			}
 		} else {
-			err = writeTarGz(currentPath, tarWriter, file, subPath)
+			fileInfo, err := dirEntry.Info()
+			if err != nil {
+				return err
+			}
+
+			err = writeTarGz(currentPath, tarWriter, fileInfo, subPath)
 			if err != nil {
 				return err
 			}
@@ -211,9 +251,11 @@ func writeTarGz(path string, tarWriter *tar.Writer, fileInfo os.FileInfo, subPat
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		handleErrorInDefer(file.Close())
+	}()
 
-	evaledPath, err := filepath.EvalSymlinks(path)
+	evaluatedPath, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return err
 	}
@@ -224,15 +266,15 @@ func writeTarGz(path string, tarWriter *tar.Writer, fileInfo os.FileInfo, subPat
 	}
 
 	link := ""
-	if evaledPath != path {
-		link = evaledPath
+	if evaluatedPath != path {
+		link = evaluatedPath
 	}
 
 	header, err := tar.FileInfoHeader(fileInfo, link)
 	if err != nil {
 		return err
 	}
-	header.Name = evaledPath[len(subPath):]
+	header.Name = evaluatedPath[len(subPath):]
 
 	err = tarWriter.WriteHeader(header)
 	if err != nil {
@@ -253,13 +295,17 @@ func extract(filePath string, directory string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		handleErrorInDefer(file.Close())
+	}()
 
 	gzipReader, err := gzip.NewReader(bufio.NewReader(file))
 	if err != nil {
 		return err
 	}
-	defer gzipReader.Close()
+	defer func() {
+		handleErrorInDefer(gzipReader.Close())
+	}()
 
 	tarReader := tar.NewReader(gzipReader)
 
@@ -316,4 +362,11 @@ func extract(filePath string, directory string) error {
 	}
 
 	return nil
+}
+
+func handleErrorInDefer(err error) {
+	if err != nil {
+		fmt.Printf("Erorr occurred: %s\n", err.Error())
+		os.Exit(1)
+	}
 }
